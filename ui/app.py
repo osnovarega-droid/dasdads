@@ -40,15 +40,10 @@ TXT_MUTED = "#8f9bb8"
 TXT_SOFT = "#b8c2df"
 ACCENT_BLUE = "#2f6dff"
 ACCENT_BLUE_DARK = "#214ebe"
-ACCENT_BLUE_LIGHT = "#4f85ff"
 ACCENT_GREEN = "#1f9d55"
 ACCENT_RED = "#c83a4a"
 ACCENT_PURPLE = "#252b4f"
 ACCENT_ORANGE = "#ff9500"
-
-ACCOUNT_ROW_HEIGHT = 52
-ACCOUNT_ROW_VERTICAL_PAD = 3
-ACCOUNT_SCROLL_STEP = ACCOUNT_ROW_HEIGHT + (ACCOUNT_ROW_VERTICAL_PAD * 2)
 
 LICENSE_SERVER_URL = "http://77.91.96.154"
 LICENSE_PUBLIC_KEY_PATH = Path("settings/license_public_key.pem")
@@ -167,8 +162,7 @@ class App(customtkinter.CTk):
         self._section_switch_job = None
         self._active_section = None
         self._accounts_scroll_fix_job = None
-        self._accounts_scroll_render_job = None
-        
+
         self.is_unlocked = False
         self.license_token = None
         self.license_exp = 0
@@ -530,14 +524,7 @@ class App(customtkinter.CTk):
         accounts_block.grid_columnconfigure(0, weight=1)
         customtkinter.CTkLabel(accounts_block, text="Accounts", font=customtkinter.CTkFont(size=20, weight="bold"), text_color=TXT_MAIN).grid(row=0, column=0, padx=10, pady=8, sticky="w")
 
-        self.accounts_scroll = customtkinter.CTkScrollableFrame(
-            accounts_block,
-            fg_color=BG_CARD_ALT,
-            corner_radius=8,
-            scrollbar_fg_color=BG_CARD,
-            scrollbar_button_color="#314778",
-            scrollbar_button_hover_color=ACCENT_BLUE_LIGHT,
-        )
+        self.accounts_scroll = customtkinter.CTkScrollableFrame(accounts_block, fg_color=BG_CARD_ALT)
         self.accounts_scroll.grid(row=1, column=0, padx=8, pady=(0, 8), sticky="nsew")
         self.accounts_scroll.grid_columnconfigure(0, weight=1)
         self._setup_accounts_scroll_stabilizer()
@@ -614,18 +601,10 @@ class App(customtkinter.CTk):
         levels_cache = getattr(self.accounts_list, "levels_cache", {})
 
         for idx, account in enumerate(self.account_manager.accounts):
-            row = customtkinter.CTkFrame(
-                self.accounts_scroll,
-                fg_color=BG_CARD,
-                corner_radius=8,
-                border_width=1,
-                border_color=BG_BORDER,
-                height=ACCOUNT_ROW_HEIGHT,
-            )
-            row.grid(row=idx, column=0, padx=4, pady=ACCOUNT_ROW_VERTICAL_PAD, sticky="ew")
+            row = customtkinter.CTkFrame(self.accounts_scroll, fg_color=BG_CARD, corner_radius=8, border_width=1, border_color=BG_BORDER)
+            row.grid(row=idx, column=0, padx=4, pady=3, sticky="ew")
             row.grid_columnconfigure(1, weight=1)
-            row.grid_propagate(False)
-            
+
             sw = customtkinter.CTkSwitch(
                 row,
                 text="",
@@ -642,14 +621,7 @@ class App(customtkinter.CTk):
             level_text = lvl_data.get("level", "-")
             xp_text = lvl_data.get("xp", "-")
 
-            level_label = customtkinter.CTkLabel(
-                row,
-                text=f"lvl: {level_text} | xp: {xp_text}",
-                anchor="w",
-                text_color=TXT_MUTED,
-                fg_color=BG_CARD,
-                font=customtkinter.CTkFont(size=11),
-            )
+            level_label = customtkinter.CTkLabel(row, text=f"lvl: {level_text} | xp: {xp_text}", anchor="w", text_color=TXT_MUTED, font=customtkinter.CTkFont(size=11))
             level_label.grid(row=1, column=1, padx=3, pady=(0, 5), sticky="w")
 
             badge = customtkinter.CTkLabel(
@@ -664,18 +636,8 @@ class App(customtkinter.CTk):
             )
             badge.grid(row=0, column=2, rowspan=2, padx=6, pady=6)
 
-            login_label = customtkinter.CTkLabel(
-                row,
-                text=account.login,
-                anchor="w",
-                text_color=TXT_MAIN,
-                fg_color=BG_CARD,
-                font=customtkinter.CTkFont(size=12, weight="bold"),
-            )
+            login_label = customtkinter.CTkLabel(row, text=account.login, anchor="w", text_color=TXT_MAIN, font=customtkinter.CTkFont(size=12, weight="bold"))
             login_label.grid(row=0, column=1, padx=3, pady=(5, 0), sticky="w")
-
-            for wheel_widget in (row, sw, login_label, level_label, badge):
-                self._bind_widget_to_accounts_wheel(wheel_widget)
 
             account.setColorCallback(lambda color, a=account: self._handle_account_color_change(a, color))
             self.account_badges[account.login] = badge
@@ -700,13 +662,10 @@ class App(customtkinter.CTk):
         scrollbar = getattr(self.accounts_scroll, "_scrollbar", None)
 
         if canvas:
-            canvas.configure(bg=BG_CARD_ALT, highlightthickness=0, bd=0, yscrollincrement=ACCOUNT_SCROLL_STEP)
-            for event in ("<Configure>",):
+            for event in ("<Configure>", "<MouseWheel>", "<Button-4>", "<Button-5>"):
                 canvas.bind(event, lambda _event: self._schedule_accounts_scroll_repair(), add="+")
-            self._bind_widget_to_accounts_wheel(canvas)
 
         if scrollbar:
-            scrollbar.configure(fg_color=BG_CARD, button_color="#314778", button_hover_color=ACCENT_BLUE_LIGHT)
             for event in ("<B1-Motion>", "<ButtonRelease-1>"):
                 scrollbar.bind(event, lambda _event: self._schedule_accounts_scroll_repair(), add="+")
 
@@ -721,36 +680,7 @@ class App(customtkinter.CTk):
                 pass
 
         self._accounts_scroll_fix_job = self.after(delay_ms, self._repair_accounts_scroll_view)
-    def _bind_widget_to_accounts_wheel(self, widget):
-        for event in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
-            widget.bind(event, self._on_accounts_mouse_wheel, add="+")
 
-    def _on_accounts_mouse_wheel(self, event):
-        if not self.winfo_exists() or not hasattr(self, "accounts_scroll"):
-            return "break"
-
-        canvas = getattr(self.accounts_scroll, "_parent_canvas", None)
-        if not canvas:
-            return "break"
-
-        direction = 0
-        if hasattr(event, "num") and event.num in (4, 5):
-            direction = -1 if event.num == 4 else 1
-        else:
-            delta = getattr(event, "delta", 0)
-            if delta > 0:
-                direction = -1
-            elif delta < 0:
-                direction = 1
-
-        if direction:
-            try:
-                canvas.yview_scroll(direction, "units")
-            except Exception:
-                return "break"
-            self._schedule_accounts_scroll_repair(delay_ms=10)
-
-        return "break"
     def _repair_accounts_scroll_view(self):
         self._accounts_scroll_fix_job = None
 
@@ -766,16 +696,6 @@ class App(customtkinter.CTk):
             if bbox:
                 canvas.configure(scrollregion=bbox)
 
-                total_height = max(0, bbox[3] - bbox[1])
-                viewport_height = max(1, canvas.winfo_height())
-                max_offset = max(0, total_height - viewport_height)
-
-                if max_offset > 0:
-                    current_offset = max(0.0, min(float(canvas.canvasy(0)), float(max_offset)))
-                    snapped_offset = round(current_offset / ACCOUNT_SCROLL_STEP) * ACCOUNT_SCROLL_STEP
-                    snapped_offset = max(0.0, min(float(snapped_offset), float(max_offset)))
-                    canvas.yview_moveto(snapped_offset / float(max_offset))
-                    
             first, last = canvas.yview()
             if first < 0:
                 canvas.yview_moveto(0.0)
@@ -784,7 +704,6 @@ class App(customtkinter.CTk):
             elif first == last and bbox:
                 # Защита от "пустого" кадра: удерживаем валидную позицию скролла
                 canvas.yview_moveto(min(max(first, 0.0), 1.0))
-            self._schedule_accounts_render_refresh()
         except Exception:
             pass
             
@@ -910,7 +829,7 @@ class App(customtkinter.CTk):
         for item in self.account_row_items:
             show = not filter_text or filter_text in item["login_lower"]
             if show:
-                item["row"].grid(row=render_idx, column=0, padx=4, pady=ACCOUNT_ROW_VERTICAL_PAD, sticky="ew")
+                item["row"].grid(row=render_idx, column=0, padx=4, pady=3, sticky="ew")
                 render_idx += 1
             else:
                 item["row"].grid_remove()
