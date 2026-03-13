@@ -1,0 +1,37 @@
+```
+💎 Goose Panel 💎
+
+🗓 PERIOD: 11/03/2026 - 18/03/2026
+
+Accounts: 34
+
+Case                               | Amount | % of drops
+-----------------------------------+--------+-----------
+Revolution Case                    | 29     | 28.4
+Kilowatt Case                      | 25     | 24.5
+Sealed Genesis Terminal            | 18     | 17.6
+Recoil Case                        | 16     | 15.7
+Dreams & Nightmares Case           | 11     | 10.8
+Fever Case                         | 1      | 1.0
+Sealed Graffiti | 8-Ball (Bazoo... | 1      | 1.0
+Sealed Graffiti | Worry (SWAT B... | 1      | 1.0
+-----------------------------------+--------+-----------
+
+(Top 10 skins)                     | Amount | Price $
+-----------------------------------+--------+--------
+Galil AR | Sky Mandala (Factory... | 1      | 6.61
+Five-SeveN | Fraise Crane (Mini... | 1      | 4.37
+UMP-45 | Warm Blooded (Factory ... | 1      | 4.07
+AK-47 | Wintergreen (Field-Tested) | 1      | 1.74
+P90 | Aeolian Light (Field-Tested) | 1      | 0.64
+-----------------------------------+--------+--------
+
+➙ Price of all drop: ~ 75.19$.
+➙ Total cases: 102 pcs.
+➙ AVG price of cases/all drop: 0.52$/0.76$.
+
+another drop:
+- 730-Anarchist | 1 | 0.04$
+- 730-SWAT | 1 | 0.04$
+➙ Price of another drop: ~ 0.08$.
+```

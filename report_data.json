@@ -1,0 +1,147 @@
+{
+  "schemaVersion": 3,
+  "periodStart": "2026-03-10T21:00:00.000Z",
+  "periodEnd": "2026-03-17T21:00:00.000Z",
+  "accounts": {
+    "CryoZenix_901": true,
+    "EchoByte_321": true,
+    "NeonWolf_47x": true,
+    "csdrop_master": true,
+    "NovaCircuit14": true,
+    "smokepeek_3k": true,
+    "glitch_boi777": true,
+    "ShadowFury_89": true,
+    "QuantumRiftX1": true,
+    "vault_rider_07": true,
+    "SilentNova771": true,
+    "VortexFuse15": true,
+    "arcanerunner2003": true,
+    "boosted_raccoon": true,
+    "byte_stalker41": true,
+    "clutchKing_31": true,
+    "danix22s1": true,
+    "darkforge_zx": true,
+    "frostblade0312": true,
+    "glitchraven8": true,
+    "oleg_smirnofff3131": true,
+    "shadowcrypt94": true,
+    "steelnexus11": true,
+    "PixelNomadX3": true,
+    "NovaStrike777": true,
+    "cs2_elite2025": true,
+    "battlezone_dan": true,
+    "toxic_sniper132": true,
+    "irina_zaitseva84": true,
+    "tatiana_belova19": true,
+    "oleg_morozov91": true,
+    "valeriyKozakov86": true,
+    "mr_cody99": true,
+    "antonina872": true
+  },
+  "cases": {
+    "Sealed Genesis Terminal": {
+      "amount": 18,
+      "totalPrice": 7.17,
+      "lastPriceText": "$0.48",
+      "pricedCount": 15
+    },
+    "Kilowatt Case": {
+      "amount": 25,
+      "totalPrice": 6.630000000000001,
+      "lastPriceText": "$0.29",
+      "pricedCount": 23
+    },
+    "Revolution Case": {
+      "amount": 29,
+      "totalPrice": 11.160000000000005,
+      "lastPriceText": "$0.38",
+      "pricedCount": 29
+    },
+    "Dreams & Nightmares Case": {
+      "amount": 11,
+      "totalPrice": 19.08,
+      "lastPriceText": "$1.89",
+      "pricedCount": 10
+    },
+    "Recoil Case": {
+      "amount": 16,
+      "totalPrice": 7.550000000000001,
+      "lastPriceText": "$0.54",
+      "pricedCount": 14
+    },
+    "Sealed Graffiti | 8-Ball (Bazooka Pink)": {
+      "amount": 1,
+      "totalPrice": 0.04,
+      "lastPriceText": "$0.04",
+      "pricedCount": 1
+    },
+    "Sealed Graffiti | Worry (SWAT Blue)": {
+      "amount": 1,
+      "totalPrice": 0.04,
+      "lastPriceText": "$0.04",
+      "pricedCount": 1
+    },
+    "Fever Case": {
+      "amount": 1,
+      "totalPrice": 0.96,
+      "lastPriceText": "$0.96",
+      "pricedCount": 1
+    }
+  },
+  "skins": {
+    "UMP-45 | Warm Blooded (Factory New)": {
+      "amount": 1,
+      "totalPrice": 4.07,
+      "lastPriceText": "$4.07",
+      "pricedCount": 1
+    },
+    "Galil AR | Sky Mandala (Factory New)": {
+      "amount": 1,
+      "totalPrice": 6.61,
+      "lastPriceText": "$6.61",
+      "pricedCount": 1
+    },
+    "AK-47 | Wintergreen (Field-Tested)": {
+      "amount": 1,
+      "totalPrice": 1.74,
+      "lastPriceText": "$1.74",
+      "pricedCount": 1
+    },
+    "P90 | Aeolian Light (Field-Tested)": {
+      "amount": 1,
+      "totalPrice": 0.64,
+      "lastPriceText": "$0.64",
+      "pricedCount": 1
+    },
+    "Five-SeveN | Fraise Crane (Minimal Wear)": {
+      "amount": 1,
+      "totalPrice": 4.37,
+      "lastPriceText": "$4.37",
+      "pricedCount": 1
+    }
+  },
+  "anotherDrops": {
+    "730-Anarchist": {
+      "amount": 1,
+      "totalPrice": 0.04,
+      "lastPriceText": "$0.04",
+      "pricedCount": 1
+    },
+    "730-SWAT": {
+      "amount": 1,
+      "totalPrice": 0.04,
+      "lastPriceText": "$0.04",
+      "pricedCount": 1
+    }
+  },
+  "totalCs2Drops": 203,
+  "totalCs2DropValue": 75.19000000000004,
+  "totalCases": 102,
+  "totalCaseValue": 52.62999999999999,
+  "totalSkins": 5,
+  "totalSkinValue": 17.43,
+  "totalAllSkins": 93,
+  "totalAllSkinValue": 22.56000000000001,
+  "totalAnotherDrops": 2,
+  "totalAnotherDropValue": 0.08
+}
