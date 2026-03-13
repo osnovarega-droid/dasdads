@@ -40,6 +40,7 @@ TXT_MUTED = "#8f9bb8"
 TXT_SOFT = "#b8c2df"
 ACCENT_BLUE = "#2f6dff"
 ACCENT_BLUE_DARK = "#214ebe"
+ACCENT_BLUE_LIGHT = "#4f85ff"
 ACCENT_GREEN = "#1f9d55"
 ACCENT_RED = "#c83a4a"
 ACCENT_PURPLE = "#252b4f"
@@ -162,7 +163,8 @@ class App(customtkinter.CTk):
         self._section_switch_job = None
         self._active_section = None
         self._accounts_scroll_fix_job = None
-
+        self._accounts_scroll_render_job = None
+        
         self.is_unlocked = False
         self.license_token = None
         self.license_exp = 0
@@ -524,7 +526,14 @@ class App(customtkinter.CTk):
         accounts_block.grid_columnconfigure(0, weight=1)
         customtkinter.CTkLabel(accounts_block, text="Accounts", font=customtkinter.CTkFont(size=20, weight="bold"), text_color=TXT_MAIN).grid(row=0, column=0, padx=10, pady=8, sticky="w")
 
-        self.accounts_scroll = customtkinter.CTkScrollableFrame(accounts_block, fg_color=BG_CARD_ALT)
+        self.accounts_scroll = customtkinter.CTkScrollableFrame(
+            accounts_block,
+            fg_color=BG_CARD_ALT,
+            corner_radius=8,
+            scrollbar_fg_color=BG_CARD,
+            scrollbar_button_color="#314778",
+            scrollbar_button_hover_color=ACCENT_BLUE_LIGHT,
+        )
         self.accounts_scroll.grid(row=1, column=0, padx=8, pady=(0, 8), sticky="nsew")
         self.accounts_scroll.grid_columnconfigure(0, weight=1)
         self._setup_accounts_scroll_stabilizer()
@@ -604,7 +613,8 @@ class App(customtkinter.CTk):
             row = customtkinter.CTkFrame(self.accounts_scroll, fg_color=BG_CARD, corner_radius=8, border_width=1, border_color=BG_BORDER)
             row.grid(row=idx, column=0, padx=4, pady=3, sticky="ew")
             row.grid_columnconfigure(1, weight=1)
-
+            row.bind("<Enter>", lambda _event, r=row: r.configure(fg_color="#1a2542", border_color="#355a9f"))
+            row.bind("<Leave>", lambda _event, r=row: r.configure(fg_color=BG_CARD, border_color=BG_BORDER))
             sw = customtkinter.CTkSwitch(
                 row,
                 text="",
@@ -636,7 +646,14 @@ class App(customtkinter.CTk):
             )
             badge.grid(row=0, column=2, rowspan=2, padx=6, pady=6)
 
-            login_label = customtkinter.CTkLabel(row, text=account.login, anchor="w", text_color=TXT_MAIN, font=customtkinter.CTkFont(size=12, weight="bold"))
+            login_label = customtkinter.CTkLabel(
+                row,
+                text=account.login,
+                anchor="w",
+                text_color=TXT_MAIN,
+                fg_color=BG_CARD,
+                font=customtkinter.CTkFont(size=12, weight="bold"),
+            )
             login_label.grid(row=0, column=1, padx=3, pady=(5, 0), sticky="w")
 
             account.setColorCallback(lambda color, a=account: self._handle_account_color_change(a, color))
@@ -662,10 +679,12 @@ class App(customtkinter.CTk):
         scrollbar = getattr(self.accounts_scroll, "_scrollbar", None)
 
         if canvas:
-            for event in ("<Configure>", "<MouseWheel>", "<Button-4>", "<Button-5>"):
+            canvas.configure(bg=BG_CARD_ALT, highlightthickness=0, bd=0)
+            for event in ("<Configure>", "<MouseWheel>", "<Button-4>", "<Button-5>", "<Expose>"):
                 canvas.bind(event, lambda _event: self._schedule_accounts_scroll_repair(), add="+")
 
         if scrollbar:
+            scrollbar.configure(fg_color=BG_CARD, button_color="#314778", button_hover_color=ACCENT_BLUE_LIGHT)
             for event in ("<B1-Motion>", "<ButtonRelease-1>"):
                 scrollbar.bind(event, lambda _event: self._schedule_accounts_scroll_repair(), add="+")
 
@@ -680,7 +699,36 @@ class App(customtkinter.CTk):
                 pass
 
         self._accounts_scroll_fix_job = self.after(delay_ms, self._repair_accounts_scroll_view)
+    def _schedule_accounts_render_refresh(self, delay_ms=24):
+        if not self.winfo_exists():
+            return
 
+        if self._accounts_scroll_render_job:
+            try:
+                self.after_cancel(self._accounts_scroll_render_job)
+            except Exception:
+                pass
+
+        self._accounts_scroll_render_job = self.after(delay_ms, self._refresh_accounts_scroll_render)
+
+    def _refresh_accounts_scroll_render(self):
+        self._accounts_scroll_render_job = None
+
+        if not self.winfo_exists() or not hasattr(self, "accounts_scroll"):
+            return
+
+        canvas = getattr(self.accounts_scroll, "_parent_canvas", None)
+        if not canvas:
+            return
+
+        try:
+            self.update_idletasks()
+            canvas.update_idletasks()
+            for item in self.account_row_items:
+                item["row"].lift()
+                item["login_label"].lift()
+        except Exception:
+            pass
     def _repair_accounts_scroll_view(self):
         self._accounts_scroll_fix_job = None
 
@@ -704,6 +752,7 @@ class App(customtkinter.CTk):
             elif first == last and bbox:
                 # Защита от "пустого" кадра: удерживаем валидную позицию скролла
                 canvas.yview_moveto(min(max(first, 0.0), 1.0))
+            self._schedule_accounts_render_refresh()
         except Exception:
             pass
             
