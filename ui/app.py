@@ -524,10 +524,10 @@ class App(customtkinter.CTk):
         accounts_block.grid_columnconfigure(0, weight=1)
         customtkinter.CTkLabel(accounts_block, text="Accounts", font=customtkinter.CTkFont(size=20, weight="bold"), text_color=TXT_MAIN).grid(row=0, column=0, padx=10, pady=8, sticky="w")
 
+       
         self.accounts_scroll = customtkinter.CTkScrollableFrame(accounts_block, fg_color=BG_CARD_ALT)
         self.accounts_scroll.grid(row=1, column=0, padx=8, pady=(0, 8), sticky="nsew")
         self.accounts_scroll.grid_columnconfigure(0, weight=1)
-        self._setup_accounts_scroll_stabilizer()
         self._create_account_rows()
 
         self.srt_placeholder = customtkinter.CTkFrame(main, width=260, fg_color=BG_CARD, corner_radius=10, border_width=1, border_color=BG_BORDER)
@@ -598,12 +598,24 @@ class App(customtkinter.CTk):
 
     def _create_account_rows(self):
         self.account_row_items.clear()
-        levels_cache = getattr(self.accounts_list, "levels_cache", {})
+        self.account_badges.clear()
+
+        levels_cache = getattr(self.accounts_list, "levels_cache", {}) or {}
+        levels_cache_lower = {str(k).lower(): v for k, v in levels_cache.items()}
 
         for idx, account in enumerate(self.account_manager.accounts):
-            row = customtkinter.CTkFrame(self.accounts_scroll, fg_color=BG_CARD, corner_radius=8, border_width=1, border_color=BG_BORDER)
+            row = customtkinter.CTkFrame(
+                self.accounts_scroll,
+                fg_color=BG_CARD,
+                corner_radius=8,
+                border_width=1,
+                border_color=BG_BORDER,
+                height=64,
+            )
             row.grid(row=idx, column=0, padx=4, pady=3, sticky="ew")
+            row.grid_columnconfigure(0, weight=0)
             row.grid_columnconfigure(1, weight=1)
+            row.grid_columnconfigure(2, weight=0)
 
             sw = customtkinter.CTkSwitch(
                 row,
@@ -613,16 +625,36 @@ class App(customtkinter.CTk):
                 fg_color="#2d3b60",
                 progress_color=ACCENT_BLUE,
             )
-            sw.grid(row=0, column=0, rowspan=2, padx=(6, 5), pady=6, sticky="w")
+            sw.grid(row=0, column=0, rowspan=2, padx=(8, 6), pady=10, sticky="w")
+
             if account in self.account_manager.selected_accounts:
                 sw.select()
 
-            lvl_data = levels_cache.get(account.login, {})
-            level_text = lvl_data.get("level", "-")
-            xp_text = lvl_data.get("xp", "-")
+            lvl_data = levels_cache.get(account.login, levels_cache_lower.get(account.login.lower(), {}))
+            level_text = lvl_data.get("level", "--")
+            xp_text = lvl_data.get("xp", "--")
 
-            level_label = customtkinter.CTkLabel(row, text=f"lvl: {level_text} | xp: {xp_text}", anchor="w", text_color=TXT_MUTED, font=customtkinter.CTkFont(size=11))
-            level_label.grid(row=1, column=1, padx=3, pady=(0, 5), sticky="w")
+            text_wrap = customtkinter.CTkFrame(row, fg_color="transparent")
+            text_wrap.grid(row=0, column=1, rowspan=2, padx=(2, 6), pady=6, sticky="nsew")
+            text_wrap.grid_columnconfigure(0, weight=1)
+
+            login_label = customtkinter.CTkLabel(
+                text_wrap,
+                text=account.login,
+                anchor="w",
+                text_color=TXT_MAIN,
+                font=customtkinter.CTkFont(size=12, weight="bold"),
+            )
+            login_label.grid(row=0, column=0, sticky="ew")
+
+            level_label = customtkinter.CTkLabel(
+                text_wrap,
+                text=f"lvl: {level_text} | xp: {xp_text}",
+                anchor="w",
+                text_color=TXT_MUTED,
+                font=customtkinter.CTkFont(size=11),
+            )
+            level_label.grid(row=1, column=0, pady=(2, 0), sticky="ew")
 
             badge = customtkinter.CTkLabel(
                 row,
@@ -631,13 +663,10 @@ class App(customtkinter.CTk):
                 font=customtkinter.CTkFont(size=10),
                 fg_color=ACCENT_BLUE,
                 corner_radius=8,
-                width=78,
-                height=20,
+                width=84,
+                height=24,
             )
-            badge.grid(row=0, column=2, rowspan=2, padx=6, pady=6)
-
-            login_label = customtkinter.CTkLabel(row, text=account.login, anchor="w", text_color=TXT_MAIN, font=customtkinter.CTkFont(size=12, weight="bold"))
-            login_label.grid(row=0, column=1, padx=3, pady=(5, 0), sticky="w")
+            badge.grid(row=0, column=2, rowspan=2, padx=(4, 8), pady=10, sticky="e")
 
             account.setColorCallback(lambda color, a=account: self._handle_account_color_change(a, color))
             self.account_badges[account.login] = badge
@@ -653,72 +682,30 @@ class App(customtkinter.CTk):
                     "badge": badge,
                 }
             )
+
             self._refresh_account_badge(account)
 
-        self._schedule_accounts_scroll_repair(delay_ms=0)
+        
 
-    def _setup_accounts_scroll_stabilizer(self):
-        canvas = getattr(self.accounts_scroll, "_parent_canvas", None)
-        scrollbar = getattr(self.accounts_scroll, "_scrollbar", None)
 
-        if canvas:
-            for event in ("<Configure>", "<MouseWheel>", "<Button-4>", "<Button-5>"):
-                canvas.bind(event, lambda _event: self._schedule_accounts_scroll_repair(), add="+")
-
-        if scrollbar:
-            for event in ("<B1-Motion>", "<ButtonRelease-1>"):
-                scrollbar.bind(event, lambda _event: self._schedule_accounts_scroll_repair(), add="+")
-
-    def _schedule_accounts_scroll_repair(self, delay_ms=80):
-        if not self.winfo_exists():
-            return
-
-        if self._accounts_scroll_fix_job:
-            try:
-                self.after_cancel(self._accounts_scroll_fix_job)
-            except Exception:
-                pass
-
-        self._accounts_scroll_fix_job = self.after(delay_ms, self._repair_accounts_scroll_view)
-
-    def _repair_accounts_scroll_view(self):
-        self._accounts_scroll_fix_job = None
-
-        if not self.winfo_exists() or not hasattr(self, "accounts_scroll"):
-            return
-
-        canvas = getattr(self.accounts_scroll, "_parent_canvas", None)
-        if not canvas:
-            return
-
-        try:
-            bbox = canvas.bbox("all")
-            if bbox:
-                canvas.configure(scrollregion=bbox)
-
-            first, last = canvas.yview()
-            if first < 0:
-                canvas.yview_moveto(0.0)
-            elif first > 1:
-                canvas.yview_moveto(1.0)
-            elif first == last and bbox:
-                # Защита от "пустого" кадра: удерживаем валидную позицию скролла
-                canvas.yview_moveto(min(max(first, 0.0), 1.0))
-        except Exception:
-            pass
-            
+                
     def _refresh_level_labels(self):
         try:
             if hasattr(self.accounts_list, "_load_levels_from_json"):
                 self.accounts_list.levels_cache = self.accounts_list._load_levels_from_json()
+
             levels_cache = getattr(self.accounts_list, "levels_cache", {}) or {}
             levels_cache_lower = {str(k).lower(): v for k, v in levels_cache.items()}
+
             for item in self.account_row_items:
                 login = item["account"].login
-                lvl_data = levels_cache.get(login, levels_cache_lower.get(str(login).lower(), {}))
-                level_text = lvl_data.get("level", "-")
-                xp_text = lvl_data.get("xp", "-")
+                lvl_data = levels_cache.get(login, levels_cache_lower.get(login.lower(), {}))
+                level_text = lvl_data.get("level", "--")
+                xp_text = lvl_data.get("xp", "--")
                 item["level_label"].configure(text=f"lvl: {level_text} | xp: {xp_text}")
+
+            for item in self.account_row_items:
+                self._refresh_account_badge(item["account"])
         except Exception:
             pass
 
@@ -813,10 +800,8 @@ class App(customtkinter.CTk):
             try:
                 self._refresh_all_runtime_states()
                 self._refresh_level_labels_if_changed()
-                for item in self.account_row_items:
-                    self._refresh_account_badge(item["account"])
             except Exception:
-                self.runtime_poll_in_flight = False
+                pass
             finally:
                 if self.winfo_exists():
                     self.after(1500, poll)
@@ -826,16 +811,22 @@ class App(customtkinter.CTk):
     def _apply_account_filter(self):
         filter_text = self.search_var.get().strip().lower() if hasattr(self, "search_var") else ""
         render_idx = 0
+
         for item in self.account_row_items:
             show = not filter_text or filter_text in item["login_lower"]
             if show:
                 item["row"].grid(row=render_idx, column=0, padx=4, pady=3, sticky="ew")
                 render_idx += 1
             else:
-                item["row"].grid_remove()
+                item["row"].grid_forget()
 
-        self._schedule_accounts_scroll_repair()
-        
+        self.after_idle(self._refresh_accounts_scroll_layout)
+    def _refresh_accounts_scroll_layout(self):
+        try:
+            if hasattr(self, "accounts_scroll") and self.accounts_scroll.winfo_exists():
+                self.accounts_scroll.update_idletasks()
+        except Exception:
+            pass  
     def _toggle_account(self, account):
         if account in self.account_manager.selected_accounts:
             self.account_manager.selected_accounts.remove(account)
