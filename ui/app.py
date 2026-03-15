@@ -756,8 +756,54 @@ class App(customtkinter.CTk):
             self.lobby_buttons[text] = btn
 
         self._update_accounts_info()
+        self._attach_slow_scrollbar_drag(self.accounts_scroll)
+        self._attach_slow_scrollbar_drag(self.srt_scroll)
         return frame
 
+    def _attach_slow_scrollbar_drag(self, scrollable_frame, speed_factor=0.45):
+        """Slows down scrollbar thumb dragging for better control."""
+        scrollbar = getattr(scrollable_frame, "_scrollbar", None)
+        parent_canvas = getattr(scrollable_frame, "_parent_canvas", None)
+        if scrollbar is None or parent_canvas is None:
+            return
+
+        drag_state = {}
+
+        def start_drag(event):
+            if not parent_canvas.winfo_exists():
+                return
+
+            top_fraction = parent_canvas.yview()[0]
+            drag_state["start_y_root"] = event.y_root
+            drag_state["start_top_fraction"] = top_fraction
+            return "break"
+
+        def update_drag(event):
+            if "start_y_root" not in drag_state or not parent_canvas.winfo_exists():
+                return "break"
+
+            content_bbox = parent_canvas.bbox("all")
+            if not content_bbox:
+                return "break"
+
+            content_height = max(content_bbox[3] - content_bbox[1], 1)
+            viewport_height = max(parent_canvas.winfo_height(), 1)
+            scrollable_height = max(content_height - viewport_height, 1)
+            max_fraction = max(0.0, 1 - (viewport_height / content_height))
+
+            slowed_delta = (event.y_root - drag_state["start_y_root"]) * speed_factor
+            next_fraction = drag_state["start_top_fraction"] + (slowed_delta / scrollable_height)
+            next_fraction = max(0.0, min(next_fraction, max_fraction))
+            parent_canvas.yview_moveto(next_fraction)
+            return "break"
+
+        def stop_drag(_event):
+            drag_state.clear()
+
+        scrollbar.bind("<ButtonPress-1>", start_drag, add="+")
+        scrollbar.bind("<B1-Motion>", update_drag, add="+")
+        scrollbar.bind("<ButtonRelease-1>", stop_drag, add="+")
+        
     def _create_account_rows(self):
         self.account_row_items.clear()
         self.account_badges.clear()
