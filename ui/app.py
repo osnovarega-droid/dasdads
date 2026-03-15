@@ -451,8 +451,7 @@ class App(customtkinter.CTk):
 
     # ---------------- Layout ----------------
     def _build_layout(self):
-        # страховка, чтобы functional секция не упала
-        if not hasattr(self, "accounts_list"):
+        if not hasattr(self, "accounts_control"):
             self._create_hidden_legacy_controllers()
 
         self.grid_columnconfigure(1, weight=1)
@@ -843,6 +842,14 @@ class App(customtkinter.CTk):
                     "login_label": login_label,
                     "level_label": level_label,
                     "badge": badge,
+                    "ui_state": {
+                        "login_color": None,
+                        "level_text": None,
+                        "badge_text": None,
+                        "badge_color": None,
+                        "visible": True,
+                        "selected": account in self.account_manager.selected_accounts,
+                    }
                 }
             )
 
@@ -859,15 +866,27 @@ class App(customtkinter.CTk):
             levels_cache = self.levels_cache or {}
             levels_cache_lower = {str(k).lower(): v for k, v in levels_cache.items()}
 
+            changed = False
+
             for item in self.account_row_items:
                 login = item["account"].login
                 lvl_data = levels_cache.get(login, levels_cache_lower.get(login.lower(), {}))
                 level_text = lvl_data.get("level", "--")
                 xp_text = lvl_data.get("xp", "--")
-                item["level_label"].configure(text=f"lvl: {level_text} | xp: {xp_text}")
+                new_text = f"lvl: {level_text} | xp: {xp_text}"
+
+                if item["ui_state"]["level_text"] != new_text:
+                    item["level_label"].configure(text=new_text)
+                    item["ui_state"]["level_text"] = new_text
+                    changed = True
 
             for item in self.account_row_items:
-                self._refresh_account_badge(item["account"])
+                if self._refresh_account_badge(item["account"]):
+                    changed = True
+
+            if changed:
+                self.after_idle(self._refresh_accounts_scroll_layout)
+
         except Exception:
             pass
 
@@ -906,9 +925,19 @@ class App(customtkinter.CTk):
         for item in self.account_row_items:
             if item["account"] is not account:
                 continue
+
             badge_text, badge_color = self._get_weekly_badge_status(account)
-            item["badge"].configure(text=badge_text, fg_color=badge_color)
-            return
+            state = item["ui_state"]
+
+            if state["badge_text"] != badge_text or state["badge_color"] != badge_color:
+                item["badge"].configure(text=badge_text, fg_color=badge_color)
+                state["badge_text"] = badge_text
+                state["badge_color"] = badge_color
+                return True
+
+            return False
+
+        return False
 
 
 
@@ -946,12 +975,28 @@ class App(customtkinter.CTk):
         return "Idle week", ACCENT_BLUE
 
     def _refresh_all_runtime_states(self):
+        changed = False
+
         for item in self.account_row_items:
             account = item["account"]
             current_color = self._normalize_account_color(getattr(account, "_color", TXT_MAIN))
-            item["login_label"].configure(text_color=current_color)
+
+            if current_color == "#DCE4EE":
+                if self.is_farmed_account(account):
+                    current_color = "#ff9500"
+                elif self.is_drop_ready_account(account):
+                    current_color = "#a855f7"
+
+            if item["ui_state"]["login_color"] != current_color:
+                item["login_label"].configure(text_color=current_color)
+                item["ui_state"]["login_color"] = current_color
+                changed = True
+
         self._sync_switches_with_selection()
         self._update_accounts_info()
+
+        if changed:
+            self.after_idle(self._refresh_accounts_scroll_layout)
 
     def _start_runtime_status_tracking(self):
         def poll():
@@ -969,22 +1014,48 @@ class App(customtkinter.CTk):
     def _apply_account_filter(self):
         filter_text = self.search_var.get().strip().lower() if hasattr(self, "search_var") else ""
         render_idx = 0
+        changed = False
 
         for item in self.account_row_items:
-            show = not filter_text or filter_text in item["login_lower"]
-            if show:
-                item["row"].grid(row=render_idx, column=0, padx=4, pady=3, sticky="ew")
+            should_show = not filter_text or filter_text in item["login_lower"]
+            was_visible = item["ui_state"]["visible"]
+
+            if should_show:
+                current_grid = item["row"].grid_info()
+                current_row = current_grid.get("row")
+
+                if (not was_visible) or str(current_row) != str(render_idx):
+                    item["row"].grid(row=render_idx, column=0, padx=4, pady=3, sticky="ew")
+                    changed = True
+
                 render_idx += 1
             else:
-                item["row"].grid_forget()
+                if was_visible:
+                    item["row"].grid_remove()
+                    changed = True
 
-        self.after_idle(self._refresh_accounts_scroll_layout)
+            item["ui_state"]["visible"] = should_show
+
+        if changed:
+            self._schedule_accounts_scroll_refresh()
     def _refresh_accounts_scroll_layout(self):
         try:
             if hasattr(self, "accounts_scroll") and self.accounts_scroll.winfo_exists():
                 self.accounts_scroll.update_idletasks()
         except Exception:
             pass  
+
+
+    
+    def _schedule_accounts_scroll_refresh(self):
+        if self._accounts_scroll_fix_job is not None:
+            return
+
+        def run():
+            self._accounts_scroll_fix_job = None
+            self._refresh_accounts_scroll_layout()
+
+        self._accounts_scroll_fix_job = self.after(30, run)
     def _toggle_account(self, account):
         if account in self.account_manager.selected_accounts:
             self.account_manager.selected_accounts.remove(account)
@@ -994,11 +1065,18 @@ class App(customtkinter.CTk):
 
     def _sync_switches_with_selection(self):
         selected = set(self.account_manager.selected_accounts)
+
         for item in self.account_row_items:
-            if item["account"] in selected:
+            should_be_selected = item["account"] in selected
+            if item["ui_state"]["selected"] == should_be_selected:
+                continue
+
+            if should_be_selected:
                 item["switch"].select()
             else:
                 item["switch"].deselect()
+
+            item["ui_state"]["selected"] = should_be_selected
 
     def _update_accounts_info(self):
         total = len(self.account_manager.accounts)
