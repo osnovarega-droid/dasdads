@@ -1,4 +1,4 @@
-import ctypes
+
 import time
 import random
 import psutil
@@ -603,6 +603,18 @@ class LobbyManager:
         except Exception:
             return False
 
+    def _click_window_relative(self, hwnd, x, y):
+        try:
+            rect = win32gui.GetWindowRect(hwnd)
+            abs_x = rect[0] + int(x)
+            abs_y = rect[1] + int(y)
+            win32api.SetCursorPos((abs_x, abs_y))
+            win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
+            win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
+            return True
+        except Exception:
+            return False
+
     def lift_all_cs2_windows(self):
         try:
             ctypes.windll.user32.SetProcessDPIAware()
@@ -719,15 +731,19 @@ class LobbyManager:
             if self._sleep_with_cancel(0.15):
                 return processed
 
+            if not self._click_window_relative(hwnd, 6, 6):
+                continue
+
+            if self._sleep_with_cancel(0.15):
+                return processed
+
             if not self._send_esc(hwnd):
-                self._logManager.add_log(f"⚠️ ESC #1 не отправлен в hwnd={hwnd}")
                 continue
 
             if self._sleep_with_cancel(0.2):
                 return processed
 
             if not self._send_esc(hwnd):
-                self._logManager.add_log(f"⚠️ ESC #2 не отправлен в hwnd={hwnd}")
                 continue
 
             if self._sleep_with_cancel(0.2):
