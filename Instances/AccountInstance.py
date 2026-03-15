@@ -460,7 +460,7 @@ class Account:
                             self.CS2Process = cs2_proc
                             self.setColor("green")
                             self.MonitorCS2(interval=5)  # запускаем мониторинг CS2
-                            self.start_log_watcher(f"{login}.log")
+                            self.start_log_watcher(f"{self.login}.log")
                             csWindow = self.FindCSWindow()
                             fix_window(csWindow)
                             SetWindowText(csWindow, f"[FSN FREE] {self.login}")
