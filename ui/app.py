@@ -20,7 +20,7 @@ from Managers.LogManager import LogManager
 from Managers.SettingsManager import SettingsManager
 from Managers.TelegramBotManager import TelegramBotManager
 
-from .accounts_list_frame import AccountsListFrame
+
 from .accounts_tab import AccountsControl
 from .config_tab import ConfigTab
 from .control_frame import ControlFrame
@@ -201,6 +201,12 @@ class App(customtkinter.CTk):
         self.telegram_bot_status_label = None
         self.telegram_bot_create_button = None
         self.telegram_bot_remove_button = None
+
+        self.control_frame = None
+        self.farmed_file = Path("settings/accs_list.txt")
+        self.farmed_file.parent.mkdir(exist_ok=True)
+        self.levels_cache = self._load_levels_from_json()
+        self.farmed_accounts = self._load_farmed_accounts()
         
         self._build_srt_state()
         self._load_region_json_if_exists()
@@ -270,21 +276,178 @@ class App(customtkinter.CTk):
         self._sync_switches_with_selection()
         self._update_accounts_info()
 
-    # ---------------- Legacy controllers ----------------
+    # ---------------- Accounts data logic ----------------
+    def set_control_frame(self, control_frame):
+        self.control_frame = control_frame
+
+    def _load_levels_from_json(self):
+        level_file = Path("level.json")
+        if not level_file.exists():
+            return {}
+        try:
+            with open(level_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return data if isinstance(data, dict) else {}
+        except Exception as e:
+            print(f"⚠️ Ошибка level.json: {e}")
+            return {}
+
+    def _save_levels_to_json(self):
+        try:
+            with open("level.json", "w", encoding="utf-8") as f:
+                json.dump(self.levels_cache, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"⚠️ Сохранение level.json: {e}")
+
+    def _load_farmed_accounts(self):
+        if not self.farmed_file.exists():
+            return set()
+        try:
+            with open(self.farmed_file, "r", encoding="utf-8") as f:
+                logins = [line.strip() for line in f.readlines() if line.strip()]
+            return set(logins)
+        except Exception as e:
+            print(f"⚠️ Ошибка загрузки farmed_accounts: {e}")
+            return set()
+
+    def _save_farmed_accounts(self):
+        try:
+            with open(self.farmed_file, "w", encoding="utf-8") as f:
+                for login in sorted(self.farmed_accounts):
+                    f.write(f"{login}\n")
+        except Exception as e:
+            print(f"⚠️ Ошибка сохранения farmed_accounts: {e}")
+
+    def _get_weekly_window_start(self, now=None):
+        current_time = now or datetime.now()
+        reset_anchor = current_time.replace(hour=WEEKLY_RESET_HOUR, minute=0, second=0, microsecond=0)
+        days_since_reset = (current_time.weekday() - WEEKLY_RESET_WEEKDAY) % 7
+        week_start = reset_anchor - timedelta(days=days_since_reset)
+        if current_time < week_start:
+            week_start -= timedelta(days=7)
+        return week_start
+
+    def is_drop_ready_login(self, login):
+        account_data = self.levels_cache.get(login, self.levels_cache.get(str(login).lower(), {}))
+        if not isinstance(account_data, dict):
+            return False
+        return account_data.get("drop_ready_week_start") == self._get_weekly_window_start().isoformat()
+
+    def is_drop_ready_account(self, account):
+        return self.is_drop_ready_login(account.login)
+
+    def set_drop_ready(self, login, value=True):
+        account_data = self.levels_cache.get(login, self.levels_cache.get(str(login).lower(), {}))
+        if not isinstance(account_data, dict):
+            account_data = {}
+
+        if value:
+            account_data["drop_ready_week_start"] = self._get_weekly_window_start().isoformat()
+        else:
+            account_data.pop("drop_ready_week_start", None)
+
+        self.levels_cache[login] = account_data
+        self._save_levels_to_json()
+
+    def is_farmed_account(self, account):
+        return account.login in self.farmed_accounts
+
+    def is_reserved_from_rotation(self, account):
+        return self.is_farmed_account(account) or self.is_drop_ready_account(account)
+
+    def mark_farmed_accounts(self):
+        selected_accounts = self.account_manager.selected_accounts.copy()
+        for account in selected_accounts:
+            login = account.login
+            account.setColor("#ff9500")
+            self.farmed_accounts.add(login)
+            self.set_drop_ready(login, value=False)
+
+        self._save_farmed_accounts()
+        self.account_manager.selected_accounts.clear()
+        self.update_label()
+
+    def update_account_level(self, login, level, xp):
+        existing = self.levels_cache.get(login, self.levels_cache.get(login.lower(), {}))
+        current_data = existing if isinstance(existing, dict) else {}
+        current_data.update({"level": level, "xp": xp})
+
+        week_start_iso = self._get_weekly_window_start().isoformat()
+        baseline_level = current_data.get("weekly_baseline_level")
+        baseline_start = current_data.get("weekly_baseline_start")
+        has_take_drop = (
+            baseline_start == week_start_iso
+            and isinstance(level, int)
+            and isinstance(baseline_level, int)
+            and level >= baseline_level + 1
+        )
+
+        if has_take_drop:
+            current_data["drop_ready_week_start"] = week_start_iso
+
+        self.levels_cache[login] = current_data
+        self._save_levels_to_json()
+
+        account = next((acc for acc in self.account_manager.accounts if acc.login == login), None)
+        if has_take_drop and account and login not in self.farmed_accounts:
+            account.setColor("#a855f7")
+
+        self._queue_ui_action(self._refresh_level_labels)
+        self._queue_ui_action(self.update_label)
+
+    def select_first_non_farmed(self, n=4):
+        available_accounts = [acc for acc in self.account_manager.accounts if not self.is_reserved_from_rotation(acc)]
+        count = min(n, len(available_accounts))
+        self.account_manager.selected_accounts.clear()
+        self.account_manager.selected_accounts.extend(available_accounts[:count])
+        self.update_label()
+
+    def set_green_for_launched_cs2(self, launched_pids):
+        processed_accounts = set()
+        for account in self.account_manager.accounts:
+            login = account.login
+            if login in processed_accounts:
+                continue
+
+            cs2_pid = self._get_account_cs2_pid(login)
+            if cs2_pid and cs2_pid in launched_pids:
+                account.setColor("green")
+            else:
+                if login in self.farmed_accounts:
+                    account.setColor("#ff9500")
+                elif self.is_drop_ready_account(account):
+                    account.setColor("#a855f7")
+                else:
+                    account.setColor("#DCE4EE")
+            processed_accounts.add(login)
+
+        self.update_label()
+
+    def _get_account_cs2_pid(self, login):
+        try:
+            runtime_path = Path("runtime.json")
+            if runtime_path.exists():
+                with open(runtime_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                for item in data:
+                    if item.get("login") == login:
+                        return int(item.get("CS2Pid", 0))
+        except Exception as e:
+            print(f"⚠️ Ошибка поиска CS2Pid {login}: {e}")
+        return None
     def _create_hidden_legacy_controllers(self):
         self.legacy_host = customtkinter.CTkFrame(self, fg_color="transparent")
 
-        self.accounts_list = AccountsListFrame(self.legacy_host)
-        self.accounts_control = AccountsControl(self.legacy_host, self.update_label, self.accounts_list)
+        self.accounts_control = AccountsControl(self.legacy_host, self.update_label, self)
         self.control_frame = ControlFrame(self.legacy_host)
         self.main_menu = MainMenu(self.legacy_host)
         self.config_tab = ConfigTab(self.legacy_host)
 
-        for widget in [self.accounts_list, self.accounts_control, self.control_frame, self.main_menu, self.config_tab]:
+        for widget in [self.accounts_control, self.control_frame, self.main_menu, self.config_tab]:
             widget.grid_remove()
 
-        self.control_frame.set_accounts_list_frame(self.accounts_list)
-        self.accounts_list.set_control_frame(self.control_frame)
+        self.control_frame.set_accounts_list_frame(self)
+        self.set_control_frame(self.control_frame)
 
     # ---------------- Layout ----------------
     def _build_layout(self):
@@ -600,7 +763,7 @@ class App(customtkinter.CTk):
         self.account_row_items.clear()
         self.account_badges.clear()
 
-        levels_cache = getattr(self.accounts_list, "levels_cache", {}) or {}
+        levels_cache = self.levels_cache or {}
         levels_cache_lower = {str(k).lower(): v for k, v in levels_cache.items()}
 
         for idx, account in enumerate(self.account_manager.accounts):
@@ -691,10 +854,9 @@ class App(customtkinter.CTk):
                 
     def _refresh_level_labels(self):
         try:
-            if hasattr(self.accounts_list, "_load_levels_from_json"):
-                self.accounts_list.levels_cache = self.accounts_list._load_levels_from_json()
+            self.levels_cache = self._load_levels_from_json()
 
-            levels_cache = getattr(self.accounts_list, "levels_cache", {}) or {}
+            levels_cache = self.levels_cache or {}
             levels_cache_lower = {str(k).lower(): v for k, v in levels_cache.items()}
 
             for item in self.account_row_items:
@@ -725,7 +887,11 @@ class App(customtkinter.CTk):
 
     def _handle_account_color_change(self, account, color):
         normalized = self._normalize_account_color(color)
-
+        if normalized == "#DCE4EE":
+            if self.is_farmed_account(account):
+                normalized = "#ff9500"
+            elif self.is_drop_ready_account(account):
+                normalized = "#a855f7"
         def apply_change():
             for item in self.account_row_items:
                 if item["account"] is account:
@@ -744,17 +910,10 @@ class App(customtkinter.CTk):
             item["badge"].configure(text=badge_text, fg_color=badge_color)
             return
 
-    def _get_weekly_window_start(self, now=None):
-        current_time = now or datetime.now()
-        reset_anchor = current_time.replace(hour=WEEKLY_RESET_HOUR, minute=0, second=0, microsecond=0)
-        days_since_reset = (current_time.weekday() - WEEKLY_RESET_WEEKDAY) % 7
-        week_start = reset_anchor - timedelta(days=days_since_reset)
-        if current_time < week_start:
-            week_start -= timedelta(days=7)
-        return week_start
+
 
     def _get_weekly_badge_status(self, account):
-        levels_cache = getattr(self.accounts_list, "levels_cache", {}) or {}
+        levels_cache = self.levels_cache or {}
         account_data = levels_cache.get(account.login, {})
         if not isinstance(account_data, dict):
             account_data = {}
@@ -773,9 +932,8 @@ class App(customtkinter.CTk):
 
         if should_persist:
             levels_cache[account.login] = account_data
-            self.accounts_list.levels_cache = levels_cache
-            if hasattr(self.accounts_list, "_save_levels_to_json"):
-                self.accounts_list._save_levels_to_json()
+            self.levels_cache = levels_cache
+            self._save_levels_to_json()
 
         if account_data.get("trade_sent_week_start") == week_start_iso:
             return "Sent trade", ACCENT_ORANGE
@@ -1447,7 +1605,7 @@ class App(customtkinter.CTk):
     def _action_select_first_4(self):
         if not self._ensure_license():
             return
-        non_farmed = [acc for acc in self.account_manager.accounts if not self.accounts_list.is_reserved_from_rotation(acc)]
+        non_farmed = [acc for acc in self.account_manager.accounts if not self.is_reserved_from_rotation(acc)]
         target = non_farmed[:4]
         current = self.account_manager.selected_accounts
         if len(current) == len(target) and all(a in current for a in target):
@@ -1504,7 +1662,7 @@ class App(customtkinter.CTk):
 
     def _on_trade_sent_success(self, login):
         def mark_sent():
-            levels_cache = getattr(self.accounts_list, "levels_cache", {}) or {}
+            levels_cache = self.levels_cache or {}
             account_data = levels_cache.get(login, {})
             if not isinstance(account_data, dict):
                 account_data = {}
@@ -1512,10 +1670,9 @@ class App(customtkinter.CTk):
             week_start_iso = self._get_weekly_window_start().isoformat()
             account_data["trade_sent_week_start"] = week_start_iso
             levels_cache[login] = account_data
-            self.accounts_list.levels_cache = levels_cache
+            self.levels_cache = levels_cache
 
-            if hasattr(self.accounts_list, "_save_levels_to_json"):
-                self.accounts_list._save_levels_to_json()
+            self._save_levels_to_json()
 
             for item in self.account_row_items:
                 if item["account"].login == login:
@@ -1936,11 +2093,11 @@ class App(customtkinter.CTk):
 
     def _connect_gsi_to_ui(self):
         try:
-            if self.gsi_manager and self.accounts_list:
-                self.gsi_manager.set_accounts_list_frame(self.accounts_list)
-                print("✅ 🎮 GSIManager подключен к AccountsListFrame!")
+            if self.gsi_manager:
+                self.gsi_manager.set_accounts_list_frame(self)
+                print("✅ 🎮 GSIManager подключен к App data API!")
             else:
-                print("⚠️ GSIManager или AccountsListFrame недоступны")
+                print("⚠️ GSIManager недоступен")
         except Exception as exc:
             print(f"❌ Ошибка подключения GSIManager: {exc}")
 
@@ -2044,7 +2201,7 @@ class App(customtkinter.CTk):
         finally:
             self._refresh_telegram_bot_block()
     def _telegram_get_accounts(self):
-        levels = getattr(self.accounts_list, "levels_cache", {}) or {}
+        levels = self.levels_cache or {}
         levels_lower = {str(k).lower(): v for k, v in levels.items()}
 
         result = []
@@ -2052,7 +2209,7 @@ class App(customtkinter.CTk):
             lvl_data = levels.get(account.login, levels_lower.get(account.login.lower(), {}))
             level_text = lvl_data.get("level", "-")
             xp_text = lvl_data.get("xp", "-")
-            is_farmed = self.accounts_list.is_farmed_account(account)
+            is_farmed = self.is_farmed_account(account)
             farm_status = "Farmed" if is_farmed else "Unfarmed"
             result.append(
                 {
@@ -2078,7 +2235,7 @@ class App(customtkinter.CTk):
         if not launched:
             return "No launched accounts"
 
-        levels = getattr(self.accounts_list, "levels_cache", {}) or {}
+        levels = self.levels_cache or {}
         levels_lower = {str(k).lower(): v for k, v in levels.items()}
 
         lines = []
