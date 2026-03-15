@@ -1,6 +1,6 @@
-
 import time
 import random
+import json
 import psutil
 import win32gui
 import win32api
@@ -577,6 +577,71 @@ class LobbyManager:
     def _safe_set_foreground(self, hwnd):
         return self._safe_activate_hwnd(hwnd)
 
+    def _load_runtime_cs2_pids(self):
+        pids = []
+        try:
+            with open("runtime.json", "r", encoding="utf-8") as runtime_file:
+                data = json.load(runtime_file)
+        except Exception:
+            return pids
+
+        if not isinstance(data, list):
+            return pids
+
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            cs2_pid = item.get("CS2Pid")
+            if cs2_pid is None:
+                continue
+            try:
+                pid = int(cs2_pid)
+            except (TypeError, ValueError):
+                continue
+            pids.append(pid)
+
+        return pids
+
+    def _find_cs2_hwnd_by_pid(self, pid):
+        if not pid:
+            return 0
+
+        candidates = []
+
+        def enum_cb(hwnd, _):
+            try:
+                if not win32gui.IsWindow(hwnd):
+                    return True
+                if not win32gui.IsWindowVisible(hwnd) or win32gui.GetParent(hwnd) != 0:
+                    return True
+
+                _, hwnd_pid = win32process.GetWindowThreadProcessId(hwnd)
+                if hwnd_pid != pid:
+                    return True
+
+                rect = win32gui.GetWindowRect(hwnd)
+                width = max(0, rect[2] - rect[0])
+                height = max(0, rect[3] - rect[1])
+                area = width * height
+                if area <= 0:
+                    return True
+
+                candidates.append((area, rect[0], rect[1], hwnd))
+            except Exception:
+                pass
+            return True
+
+        try:
+            win32gui.EnumWindows(enum_cb, None)
+        except Exception:
+            return 0
+
+        if not candidates:
+            return 0
+
+        candidates.sort(key=lambda item: (-item[0], item[1], item[2]))
+        return candidates[0][3]
+
     def _activate_hwnd_for_input(self, hwnd):
         if not hwnd or not win32gui.IsWindow(hwnd):
             return False
@@ -603,17 +668,209 @@ class LobbyManager:
         except Exception:
             return False
 
-    def _click_window_relative(self, hwnd, x, y):
+    def _click_in_window(self, hwnd, x, y, hover_delay=0.3):
         try:
             rect = win32gui.GetWindowRect(hwnd)
             abs_x = rect[0] + int(x)
             abs_y = rect[1] + int(y)
             win32api.SetCursorPos((abs_x, abs_y))
+            time.sleep(max(0.0, float(hover_delay)))
             win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
             win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
             return True
         except Exception:
             return False
+
+    def _get_cs2_hwnds(self):
+        cs2_pids = set()
+        for proc in psutil.process_iter(['pid', 'name']):
+            try:
+                if (proc.info.get('name') or '').lower() == 'cs2.exe':
+                    cs2_pids.add(int(proc.info['pid']))
+            except Exception:
+                continue
+
+        if not cs2_pids:
+            return []
+
+        hwnd_list = []
+
+        def enum_cb(hwnd, _):
+            try:
+                if not win32gui.IsWindow(hwnd):
+                    return True
+                if not win32gui.IsWindowVisible(hwnd):
+                    return True
+                if win32gui.GetParent(hwnd) != 0:
+                    return True
+
+                _, hwnd_pid = win32process.GetWindowThreadProcessId(hwnd)
+                if hwnd_pid not in cs2_pids:
+                    return True
+
+                rect = win32gui.GetWindowRect(hwnd)
+                width = max(0, rect[2] - rect[0])
+                height = max(0, rect[3] - rect[1])
+                if width * height <= 0:
+                    return True
+
+                hwnd_list.append((rect[0], rect[1], hwnd_pid, hwnd))
+            except Exception:
+                pass
+            return True
+
+        try:
+            win32gui.EnumWindows(enum_cb, None)
+        except Exception:
+            return []
+
+        hwnd_list.sort(key=lambda item: (item[0], item[1], item[2]))
+        return [item[3] for item in hwnd_list]
+
+    def _reset_search_in_all_cs2_windows(self):
+        hwnds = self._get_cs2_hwnds()
+        if not hwnds:
+            self._logManager.add_log("⚠️ Не найдено CS2 окон для сброса поиска")
+            return False
+
+        processed = 0
+        for hwnd in hwnds:
+            if self._is_cancelled():
+                return False
+            if not win32gui.IsWindow(hwnd):
+                continue
+
+            self._safe_activate_hwnd(hwnd)
+            self._send_esc(hwnd)
+            if self._sleep_with_cancel(0.4):
+                return False
+            self._click_in_window(hwnd, 374, 8, hover_delay=0.4)
+            if self._sleep_with_cancel(0.4):
+                return False
+            self._send_esc(hwnd)
+            if self._sleep_with_cancel(0.4):
+                return False
+            processed += 1
+
+        self._logManager.add_log(f"♻️ Сброс поиска выполнен в {processed} окнах CS2")
+        return processed > 0
+
+    def _build_log_watchers(self):
+        cs2_path = self._settingManager.get(
+            "CS2Path",
+            "C:/Program Files (x86)/Steam/steamapps/common/Counter-Strike Global Offensive",
+        )
+
+        root_candidates = [
+            Path(cs2_path),
+            Path(cs2_path) / "game" / "csgo",
+            Path(cs2_path) / "csgo",
+        ]
+
+        logins = []
+        for team in (self.team1, self.team2):
+            if not team:
+                continue
+            members = [team.leader] + list(getattr(team, "bots", []) or [])
+            for member in members:
+                login = str(getattr(member, "login", "") or "").strip()
+                if login:
+                    logins.append(login)
+
+        watchers = {}
+        for login in sorted(set(logins)):
+            filename = f"{login}.log".lower()
+            found_path = None
+            latest_mtime = -1.0
+
+            for root in root_candidates:
+                if not root.exists():
+                    continue
+
+                direct = root / f"{login}.log"
+                if direct.is_file():
+                    try:
+                        mtime = direct.stat().st_mtime
+                    except Exception:
+                        mtime = -1.0
+                    if mtime >= latest_mtime:
+                        latest_mtime = mtime
+                        found_path = direct
+
+                try:
+                    candidates = root.rglob("*.log")
+                except Exception:
+                    candidates = []
+
+                for path in candidates:
+                    if not path.is_file() or path.name.lower() != filename:
+                        continue
+                    try:
+                        mtime = path.stat().st_mtime
+                    except Exception:
+                        mtime = -1.0
+                    if mtime >= latest_mtime:
+                        latest_mtime = mtime
+                        found_path = path
+
+            if not found_path:
+                continue
+
+            try:
+                with open(found_path, "r", encoding="utf-8", errors="ignore") as log_file:
+                    cursor = log_file.seek(0, 2)
+            except Exception:
+                cursor = 0
+
+            watchers[login] = {"path": found_path, "cursor": cursor}
+
+        return watchers
+
+    def _has_datacenter_ping_error(self, watchers, phrase="No official datacenters pingable"):
+        for login, state in watchers.items():
+            log_path = state.get("path")
+            if not log_path:
+                continue
+
+            read_pos = max(0, int(state.get("cursor") or 0))
+
+            try:
+                with open(log_path, "r", encoding="utf-8", errors="ignore") as log_file:
+                    log_file.seek(read_pos)
+                    chunk = log_file.read()
+                    state["cursor"] = log_file.tell()
+            except Exception:
+                continue
+
+            if phrase in chunk:
+                self._logManager.add_log(
+                    f"⚠️ [{login}] Найдено '{phrase}'. Перезапускаем Make lobbies & search game"
+                )
+                return True
+
+        return False
+
+    def _click_window_relative(self, hwnd, x, y):
+        try:
+            client_x = int(x)
+            client_y = int(y)
+            lparam = win32api.MAKELONG(client_x, client_y)
+
+            win32api.PostMessage(hwnd, win32con.WM_MOUSEMOVE, 0, lparam)
+            win32api.PostMessage(hwnd, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, lparam)
+            win32api.PostMessage(hwnd, win32con.WM_LBUTTONUP, 0, lparam)
+            return True
+        except Exception:
+            try:
+                rect = win32gui.GetWindowRect(hwnd)
+                abs_x = rect[0] + int(x)
+                abs_y = rect[1] + int(y)
+                win32api.SetCursorPos((abs_x, abs_y))
+                win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
+                win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
+                return True
+            except Exception:
+                return False
 
     def lift_all_cs2_windows(self):
         try:
@@ -664,11 +921,11 @@ class LobbyManager:
         return lifted
 
     def press_esc_all_cs2_windows(self):
-        cs2_pids = []
+        cs2_pids = set()
         for proc in psutil.process_iter(['pid', 'name']):
             try:
                 if (proc.info.get('name') or '').lower() == 'cs2.exe':
-                    cs2_pids.append(int(proc.info['pid']))
+                    cs2_pids.add(int(proc.info['pid']))
             except Exception:
                 continue
 
@@ -676,57 +933,33 @@ class LobbyManager:
             self._logManager.add_log("⚠️ cs2.exe процессы не найдены")
             return 0
 
-        hwnd_list = []
+        runtime_ordered_pids = []
+        seen_runtime = set()
+        for pid in self._load_runtime_cs2_pids():
+            if pid in cs2_pids and pid not in seen_runtime:
+                runtime_ordered_pids.append(pid)
+                seen_runtime.add(pid)
 
-        def enum_cb(hwnd, _):
-            try:
-                if not win32gui.IsWindow(hwnd):
-                    return True
-                if not win32gui.IsWindowVisible(hwnd):
-                    return True
-                if win32gui.GetParent(hwnd) != 0:
-                    return True
-
-                _, hwnd_pid = win32process.GetWindowThreadProcessId(hwnd)
-                if hwnd_pid not in cs2_pids:
-                    return True
-
-                rect = win32gui.GetWindowRect(hwnd)
-                width = max(0, rect[2] - rect[0])
-                height = max(0, rect[3] - rect[1])
-                area = width * height
-                if area <= 0:
-                    return True
-
-                hwnd_list.append((rect[0], rect[1], hwnd_pid, hwnd))
-            except Exception:
-                pass
-            return True
-
-        try:
-            win32gui.EnumWindows(enum_cb, None)
-        except Exception as e:
-            self._logManager.add_log(f"❌ EnumWindows error: {e}")
-            return 0
-
-        if not hwnd_list:
-            self._logManager.add_log("⚠️ Не найдено hwnd окон CS2")
-            return 0
-
-        hwnd_list.sort(key=lambda item: (item[0], item[1], item[2]))
+        remaining_pids = sorted(pid for pid in cs2_pids if pid not in seen_runtime)
+        ordered_pids = runtime_ordered_pids + remaining_pids
 
         processed = 0
 
-        for _, _, pid, hwnd in hwnd_list:
+        for pid in ordered_pids:
             if self._is_cancelled():
                 return processed
+
+            hwnd = self._find_cs2_hwnd_by_pid(pid)
+            if not hwnd:
+                self._logManager.add_log(f"⚠️ Не найден hwnd для cs2.exe pid={pid}")
+                continue
 
             if not win32gui.IsWindow(hwnd):
                 continue
 
             if not self._activate_hwnd_for_input(hwnd):
                 self._logManager.add_log(f"⚠️ Не удалось активировать hwnd={hwnd} pid={pid}")
-                continue
+                # Клик и ESC отправляем всё равно по HWND, даже если foreground не взяли.
 
             if self._sleep_with_cancel(0.15):
                 return processed
@@ -955,7 +1188,8 @@ class LobbyManager:
             self._build_strict_lobbies_from_4(top4_accounts)
             return self._has_strict_pair_windows()
 
-        for cycle in range(1, max_cycles + 1):
+        cycle = 1
+        while cycle <= max_cycles:
             if AutoAcceptModule.final_clicks_disabled():
                 return True
 
@@ -1038,7 +1272,12 @@ class LobbyManager:
                 if not click_final(info2):
                     return False
 
+            log_watchers = self._build_log_watchers()
+            if log_watchers:
+                self._logManager.add_log(f"ℹ️ Мониторинг datacenter-ошибки включён для {len(log_watchers)} логов")
+
             timed_out = True
+            should_restart_cycle = False
             start_time = time.time()
             while time.time() - start_time < 600:
                 if self._is_cancelled():
@@ -1047,7 +1286,13 @@ class LobbyManager:
                 if AutoAcceptModule.final_clicks_disabled():
                     timed_out = False
                     break
-
+                # В первую минуту после старта поиска следим за ошибкой datacenter в {login}.log.
+                if (time.time() - start_time) <= 60 and log_watchers and self._has_datacenter_ping_error(log_watchers):
+                    if not self._reset_search_in_all_cs2_windows():
+                        return False
+                    should_restart_cycle = True
+                    timed_out = False
+                    break
                 info1 = get_team_info(self.team1)
                 info2 = get_team_info(self.team2)
                 if not info1 or not info2:
@@ -1112,11 +1357,17 @@ class LobbyManager:
                 if self._sleep_with_cancel(1.0):
                     return False
 
+            if should_restart_cycle:
+                self._logManager.add_log("♻️ Перезапускаем цикл Make lobbies & search game после datacenter-ошибки")
+                continue
+
             if not timed_out or AutoAcceptModule.final_clicks_disabled():
                 return True
 
             if not self._recover_after_match_timeout(FINAL_CLICK):
                 return False
+
+            cycle += 1
 
         self._logManager.add_log("❌ Match was not found after 3 recovery cycles")
         return False
