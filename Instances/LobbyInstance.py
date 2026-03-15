@@ -1,4 +1,5 @@
 import time
+from datetime import datetime
 from pathlib import Path
 
 import pyautogui
@@ -248,10 +249,110 @@ class LobbyInstance:
         print(f"❌ [{login}] Не дождались строки '{phrase}' в {log_path}")
         return False
 
+    @staticmethod
+    def _parse_log_timestamp(line):
+        if not line:
+            return None
+
+        prefix = line[:14]
+        if len(prefix) < 14:
+            return None
+
+        try:
+            base_ts = datetime.strptime(prefix, "%m/%d %H:%M:%S")
+        except ValueError:
+            return None
+
+        now = datetime.now()
+        candidate = base_ts.replace(year=now.year)
+
+        # Логи не содержат год, поэтому на стыке года корректируем его вручную.
+        if (candidate - now).total_seconds() > 86400:
+            candidate = candidate.replace(year=now.year - 1)
+        elif (now - candidate).total_seconds() > 366 * 86400:
+            candidate = candidate.replace(year=now.year + 1)
+
+        return candidate
+
+    def _wait_log_phrase_in_window(
+        self,
+        member,
+        phrase="JsFriendLobbyLeaderName",
+        timeout=30.0,
+        poll=0.2,
+        start_cursor=0,
+        center_ts=None,
+        half_window_sec=30,
+    ):
+        login = getattr(member, "login", "")
+        if not login:
+            return False
+
+        log_path = self._find_member_log_path(login)
+        if not log_path:
+            print(f"❌ Лог не найден для [{login}]")
+            return False
+
+        start_time = time.time()
+        read_pos = max(0, int(start_cursor or 0))
+        line_tail = ""
+        window_start = None
+        window_end = None
+
+        if center_ts is not None:
+            window_start = datetime.fromtimestamp(center_ts - half_window_sec)
+            window_end = datetime.fromtimestamp(center_ts + half_window_sec)
+            print(
+                f"ℹ️ [{login}] Ищем '{phrase}' в окне {window_start.strftime('%m/%d %H:%M:%S')} - {window_end.strftime('%m/%d %H:%M:%S')}"
+            )
+
+        while time.time() - start_time < timeout:
+            if self._is_cancelled():
+                return False
+
+            try:
+                with open(log_path, "r", encoding="utf-8", errors="ignore") as log_file:
+                    log_file.seek(read_pos)
+                    chunk = log_file.read()
+                    read_pos = log_file.tell()
+            except Exception:
+                chunk = ""
+
+            if chunk:
+                lines = (line_tail + chunk).splitlines(keepends=False)
+                if chunk and not chunk.endswith(("\n", "\r")):
+                    line_tail = lines.pop() if lines else (line_tail + chunk)
+                else:
+                    line_tail = ""
+
+                for line in lines:
+                    if phrase not in line:
+                        continue
+
+                    if window_start is None or window_end is None:
+                        print(f"✅ [{login}] Найдена строка '{phrase}' в {log_path}")
+                        return True
+
+                    line_ts = self._parse_log_timestamp(line)
+                    if line_ts is None:
+                        continue
+                    if window_start <= line_ts <= window_end:
+                        print(
+                            f"✅ [{login}] Найдена строка '{phrase}' с таймкодом {line_ts.strftime('%m/%d %H:%M:%S')} в {log_path}"
+                        )
+                        return True
+
+            time.sleep(poll)
+
+        print(f"❌ [{login}] Не дождались строки '{phrase}' в {log_path}")
+        return False
+
     def Collect(self):
         leader_hwnd = self._focus_member(self.leader)
         if not leader_hwnd:
             return False
+
+        final_click_ts_by_login = {}
 
         for bot in self.bots:
             if self._is_cancelled():
@@ -291,6 +392,7 @@ class LobbyInstance:
                 self.leader.ClickMouse(235, i)
                 time.sleep(0.001)
             self.leader.ClickMouse(235, 165)
+            final_click_ts_by_login[getattr(bot, "login", "")] = time.time()
 
         time.sleep(1.5)
 
@@ -302,7 +404,10 @@ class LobbyInstance:
                 return False
             bot.MoveMouse(380, 100)
             time.sleep(0.6)
-            if not self._wait_log_phrase(bot):
+            if not self._wait_log_phrase_in_window(
+                bot,
+                center_ts=final_click_ts_by_login.get(getattr(bot, "login", "")),
+            ):
                 return False
             bot.ClickMouse(306, 37)
 
