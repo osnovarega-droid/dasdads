@@ -1,4 +1,5 @@
 import time
+from pathlib import Path
 
 import pyautogui
 import pyperclip
@@ -150,6 +151,53 @@ class LobbyInstance:
             time.sleep(delay)
         return 0
 
+    @staticmethod
+    def _find_member_log_path(login):
+        filename = f"{login}.log"
+        direct_path = Path(filename)
+        if direct_path.exists():
+            return direct_path
+
+        cwd = Path.cwd()
+        for path in cwd.rglob(filename):
+            if path.is_file():
+                return path
+        return None
+
+    def _wait_log_phrase(self, member, phrase="JsFriendLobbyLeaderName", timeout=25.0, poll=0.2):
+        login = getattr(member, "login", "")
+        if not login:
+            return False
+
+        log_path = self._find_member_log_path(login)
+        if not log_path:
+            print(f"❌ Лог не найден для [{login}]")
+            return False
+
+        start_time = time.time()
+        read_pos = log_path.stat().st_size
+
+        while time.time() - start_time < timeout:
+            if self._is_cancelled():
+                return False
+
+            try:
+                with open(log_path, "r", encoding="utf-8", errors="ignore") as log_file:
+                    log_file.seek(read_pos)
+                    chunk = log_file.read()
+                    read_pos = log_file.tell()
+            except Exception:
+                chunk = ""
+
+            if phrase in chunk:
+                print(f"✅ [{login}] Найдена строка '{phrase}' в {log_path}")
+                return True
+
+            time.sleep(poll)
+
+        print(f"❌ [{login}] Не дождались строки '{phrase}' в {log_path}")
+        return False
+
     def Collect(self):
         leader_hwnd = self._focus_member(self.leader)
         if not leader_hwnd:
@@ -204,6 +252,8 @@ class LobbyInstance:
                 return False
             bot.MoveMouse(380, 100)
             time.sleep(0.6)
+            if not self._wait_log_phrase(bot):
+                return False
             bot.ClickMouse(306, 37)
 
         return True
