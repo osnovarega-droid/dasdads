@@ -196,7 +196,25 @@ class LobbyInstance:
 
         return latest_path
 
-    def _wait_log_phrase(self, member, phrase="JsFriendLobbyLeaderName", timeout=25.0, poll=0.2):
+    def _get_log_cursor(self, member):
+        login = getattr(member, "login", "")
+        if not login:
+            return None, None
+
+        log_path = self._find_member_log_path(login)
+        if not log_path:
+            print(f"❌ Лог не найден для [{login}]")
+            return None, None
+
+        try:
+            with open(log_path, "r", encoding="utf-8", errors="ignore") as log_file:
+                cursor = log_file.seek(0, 2)
+        except Exception:
+            cursor = 0
+
+        return log_path, cursor
+
+    def _wait_log_phrase(self, member, phrase="JsFriendLobbyLeaderName", timeout=30.0, poll=0.2, start_cursor=0):
         login = getattr(member, "login", "")
         if not login:
             return False
@@ -207,7 +225,7 @@ class LobbyInstance:
             return False
 
         start_time = time.time()
-        read_pos = 0
+        read_pos = max(0, int(start_cursor or 0))
 
         while time.time() - start_time < timeout:
             if self._is_cancelled():
