@@ -10,7 +10,7 @@ import keyboard
 import psutil
 
 from Helpers.MouseController import MouseHelper
-
+from Managers.SettingsManager import SettingsManager
 
 class LobbyInstance:
     def __init__(self, leader, bots):
@@ -153,16 +153,48 @@ class LobbyInstance:
 
     @staticmethod
     def _find_member_log_path(login):
-        filename = f"{login}.log"
-        direct_path = Path(filename)
-        if direct_path.exists():
-            return direct_path
+        normalized_login = str(login or "").strip()
+        if not normalized_login:
+            return None
 
-        cwd = Path.cwd()
-        for path in cwd.rglob(filename):
-            if path.is_file():
-                return path
-        return None
+        filename = f"{normalized_login}.log"
+        settings = SettingsManager()
+        cs2_path = settings.get(
+            "CS2Path",
+            "C:/Program Files (x86)/Steam/steamapps/common/Counter-Strike Global Offensive",
+        )
+
+        search_roots = [
+            Path.cwd(),
+            Path(__file__).resolve().parent.parent,
+            Path(cs2_path),
+            Path(cs2_path) / "game" / "csgo",
+        ]
+
+        latest_path = None
+        latest_mtime = 0.0
+        target_name = filename.lower()
+
+        for root in search_roots:
+            if not root.exists():
+                continue
+
+            direct_path = root / filename
+            if direct_path.is_file():
+                mtime = direct_path.stat().st_mtime
+                if mtime >= latest_mtime:
+                    latest_mtime = mtime
+                    latest_path = direct_path
+
+            for path in root.rglob("*.log"):
+                if not path.is_file() or path.name.lower() != target_name:
+                    continue
+                mtime = path.stat().st_mtime
+                if mtime >= latest_mtime:
+                    latest_mtime = mtime
+                    latest_path = path
+
+        return latest_path
 
     def _wait_log_phrase(self, member, phrase="JsFriendLobbyLeaderName", timeout=25.0, poll=0.2):
         login = getattr(member, "login", "")
@@ -175,7 +207,7 @@ class LobbyInstance:
             return False
 
         start_time = time.time()
-        read_pos = log_path.stat().st_size
+        read_pos = 0
 
         while time.time() - start_time < timeout:
             if self._is_cancelled():
