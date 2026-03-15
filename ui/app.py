@@ -8,6 +8,7 @@ import hashlib
 import sys
 import base64
 import time
+import webbrowser
 import rsa
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor
@@ -477,7 +478,7 @@ class App(customtkinter.CTk):
         ).grid(row=0, column=0, padx=10, pady=(10, 4), sticky="w")
 
         self.nav_buttons = {}
-        nav_items = [("functional", "Functionals"), ("config", "Configurations"), ("license", "License"), ("stats", "Accs Statistic")]
+        nav_items = [("functional", "Functionals"), ("config", "Configurations"), ("license", "License"), ("stats", "Accs Statistics")]
         for idx, (key, text) in enumerate(nav_items, start=1):
             btn = customtkinter.CTkButton(
                 self.sidebar,
@@ -1672,7 +1673,51 @@ class App(customtkinter.CTk):
     def _build_stats_section(self, parent):
         frame = customtkinter.CTkFrame(parent, fg_color=BG_CARD, corner_radius=10, border_width=1, border_color=BG_BORDER)
         frame.grid_columnconfigure(0, weight=1)
-        customtkinter.CTkLabel(frame, text="Accs Stats", font=customtkinter.CTkFont(size=30, weight="bold"), text_color=TXT_MAIN).grid(row=0, column=0, padx=16, pady=(20, 8), sticky="w")
+
+        customtkinter.CTkLabel(
+            frame,
+            text="Accs Statistics",
+            font=customtkinter.CTkFont(size=30, weight="bold"),
+            text_color=TXT_MAIN,
+        ).grid(row=0, column=0, padx=16, pady=(20, 8), sticky="w")
+
+        notice_card = customtkinter.CTkFrame(
+            frame,
+            fg_color=BG_CARD_ALT,
+            corner_radius=14,
+            border_width=1,
+            border_color=BG_BORDER,
+        )
+        notice_card.grid(row=1, column=0, padx=16, pady=(8, 16), sticky="ew")
+        notice_card.grid_columnconfigure(0, weight=1)
+
+        customtkinter.CTkLabel(
+            notice_card,
+            text="🚧 В разработке",
+            font=customtkinter.CTkFont(size=24, weight="bold"),
+            text_color=TXT_MAIN,
+        ).grid(row=0, column=0, padx=20, pady=(20, 8))
+
+        customtkinter.CTkLabel(
+            notice_card,
+            text="Скоро здесь появится расширенная статистика аккаунтов\nс красивыми графиками и детальной аналитикой.",
+            font=customtkinter.CTkFont(size=13),
+            text_color=TXT_SOFT,
+            justify="center",
+        ).grid(row=1, column=0, padx=20, pady=(0, 14))
+
+        customtkinter.CTkButton(
+            notice_card,
+            text="Support Developer",
+            width=180,
+            height=38,
+            fg_color=ACCENT_BLUE,
+            hover_color=ACCENT_BLUE_DARK,
+            font=customtkinter.CTkFont(size=13, weight="bold"),
+            command=lambda: webbrowser.open(
+                "https://steamcommunity.com/tradeoffer/new/?partner=1820312068&token=IfT_ec3_"
+            ),
+        ).grid(row=2, column=0, padx=20, pady=(0, 20))
         return frame
 
     # ---------------- Actions (locked) ----------------
